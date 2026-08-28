@@ -1,0 +1,569 @@
+---
+title: "Understanding the Application of Calculation Items"
+url: "https://www.sqlbi.com/articles/understanding-the-application-of-calculation-items"
+published: "2020-08-17"
+updated: 
+source: "sqlbi.com"
+---
+
+# Understanding the Application of Calculation Items
+
+> 发布：2020-08-17
+
+In [previous articles](https://www.sqlbi.com/calculation-groups/) we first introduced calculation groups and the application of calculation items, providing the best practices on how to author calculation items. In this article we describe in greater details the process of calculation item application.
+
+The content of this article is not strictly needed if you obey the best practice of always applying a calculation item to an expression containing a single measure. Nevertheless, for the curious among our readers, this article describes the reasons for the best practice. We explain the rule by showing several practical examples where not obeying the best practice leads to wrong or unexpected results.
+
+First, a quick recap of how the calculation item application process is executed.
+
+Calculation items can be applied by the user using, for example, a slicer. A calculation item is applied by replacing measure references invoked when there is a calculation item active in the filter context. In this scenario, the calculation item rewrites the measure reference by applying the expression defined in the calculation item itself.
+
+For example, consider the following calculation item:
+
+```dax
+
+
+-- 
+
+-- Calculation Item: YTD
+
+--
+
+    CALCULATE ( 
+
+        SELECTEDMEASURE (), 
+
+        DATESYTD ( 'Date'[Date] ) 
+
+    )
+
+```
+
+In order to apply the calculation item in an expression, you need to filter the calculation group. You can create this filter using [[CALCULATE]] , like in the following example; this is the same technique used by Power BI when using slicers and visuals:
+
+```dax
+
+
+CALCULATE (
+
+    [Sales Amount], 
+
+    'Time Intelligence'[Time calc] = "YTD"
+
+)
+
+```
+
+When [[CALCULATE]] applies a filter to a calculation item, DAX uses the definition of the calculation item to rewrite the expression before evaluating it. Therefore, based on the definition of the calculation item, the previous code is interpreted as follows:
+
+```dax
+
+
+CALCULATE (
+
+    CALCULATE ( 
+
+        [Sales Amount], 
+
+        DATESYTD ( 'Date'[Date] ) 
+
+    ) 
+
+)
+
+```
+
+Despite being very intuitive in simple examples, this behavior hides some level of complexity. The application of a calculation item replaces a measure reference with the expression of the calculation item. Focus your attention on this last sentence: *A measure reference is replaced.* Without a measure reference, a calculation item does not apply any modification. For example, the following code is not affected by any calculation item because it does not contain any measure reference:
+
+```dax
+
+
+CALCULATE (
+
+    SUMX ( Sales, Sales[Quantity] * Sales[Net Price] ), 
+
+    'Time Intelligence'[Time calc] = "YTD"
+
+)
+
+```
+
+In the previous example, the calculation item does not perform any transformation because the code inside [[CALCULATE]] does not use any measure. The following code is the one executed after the application of the calculation item:
+
+```dax
+
+
+CALCULATE (
+
+    SUMX ( Sales, Sales[Quantity] * Sales[Net Price] )
+
+)
+
+```
+
+If the expression inside [[CALCULATE]] contains multiple measure references, all of them are replaced with the calculation item definition. For example, the expression in the following *Cost Ratio YTD* measure contains two measure references, *Total Cost* and *Sales Amount*:
+
+```dax
+
+
+CR YTD :=
+
+CALCULATE (
+
+    DIVIDE ( 
+
+        [Total Cost], 
+
+        [Sales Amount]
+
+    ),
+
+    'Time Intelligence'[Time calc] = "YTD"
+
+)
+
+```
+
+To obtain the actual code executed, replace the measure references with the expansion of the calculation item definition, as in the following *CR YTD Actual Code* measure:
+
+```dax
+
+
+CR YTD Actual Code :=
+
+CALCULATE (
+
+    DIVIDE ( 
+
+        CALCULATE ( 
+
+            [Total Cost], 
+
+            DATESYTD ( 'Date'[Date] ) 
+
+        ),
+
+        CALCULATE ( 
+
+            [Sales Amount], 
+
+            DATESYTD ( 'Date'[Date] ) 
+
+        ) 
+
+    )
+
+)
+
+```
+
+In this example, the code generated produces the same result as the next version in the *CR YTD Simplified* measure, which is more intuitive:
+
+```dax
+
+
+CR YTD Simplified :=
+
+CALCULATE (
+
+    CALCULATE ( 
+
+        DIVIDE ( 
+
+            [Total Cost], 
+
+            [Sales Amount]
+
+        ),
+
+        DATESYTD ( 'Date'[Date] ) 
+
+    )
+
+)
+
+```
+
+These three measures return the same result.
+
+![](https://cdn.sqlbi.com/wp-content/uploads/Calculation-groups-3-Advanced-Application-01.png)
+
+Nevertheless, you must be very careful because the *CR YTD Simplified* measure does not correspond to the actual code generated by the calculation item, which is the code in *CR YTD Actual Code*. In this very special case, the two versions are equivalent. However, in more complex scenarios the difference is significant, and such a large difference can lead to unintended results that are extremely hard to follow and understand. Let us analyze a couple of examples. In the first example the *Sales YTD 2008 2009* measure has two nested [[CALCULATE]] functions: the outer [[CALCULATE]] sets a filter on the year 2008, whereas the inner [[CALCULATE]] sets a filter on the year 2009:
+
+```dax
+
+
+Sales YTD 2008 2009 :=
+
+CALCULATE (
+
+    CALCULATE ( 
+
+        [Sales Amount], 
+
+        'Date'[Calendar Year] = "CY 2009"
+
+    ), 
+
+    'Time Intelligence'[Time calc] = "YTD",
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+The outer [[CALCULATE]] filters the calculation item to the **YTD** value. Nevertheless, the application of the calculation item does not change the expression because the expression does not directly contain any measure. [[CALCULATE]] filters the calculation item, but its application does not lead to any modifications to the code.
+
+Pay attention to the fact that the Sales Amount measure is within the scope of the inner [[CALCULATE]] . The application of a calculation item modifies the measures in the current scope of the filter context; it does not affect nested filter context scopes. Those are handled by their own [[CALCULATE]] or equivalent code, such as [[CALCULATETABLE]] or context transitions which may or may not retain the same filter on the calculation item.
+
+When the inner [[CALCULATE]] applies its filter context, it does not change the filter status of the calculation item. Therefore, the engine finds that the calculation item is still filtered, and it remains filtered if no other [[CALCULATE]] changes it. Same as if it were a regular column. The inner [[CALCULATE]] contains a measure reference, and DAX performs the application of the calculation item. The resulting code corresponds to the definition of the *Sales YTD 2008 2009 Actual Code* measure:
+
+```dax
+
+
+Sales YTD 2008 2009 Actual Code :=
+
+CALCULATE (
+
+    CALCULATE ( 
+
+        CALCULATE ( 
+
+            [Sales Amount], 
+
+            DATESYTD ( 'Date'[Date] ) 
+
+        ),
+
+        'Date'[Calendar Year] = "CY 2009"
+
+    ), 
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+The result of these two measures is the following report.
+
+![](https://cdn.sqlbi.com/wp-content/uploads/Calculation-groups-3-Advanced-Application-02.png)
+
+The selection made by the slicer on the left applies to the matrix in the middle of the figure, which includes the *Sales YTD 2008 2009* and *Sales YTD 2008 2009 Actual Code* measures. However, the selection of the year CY 2008 is overridden by CY 2009. This can be verified by looking at the matrix on the right-hand side, which shows the Sales Amount measure transformed with the **YTD** calculation item for the CY 2008 and CY 2009 years. The numbers in the center matrix correspond to the CY 2009 column of the matrix on the right.
+
+The [[DATESYTD]] function is applied when the filter context is filtering the year 2009, not 2008. Despite the calculation item being filtered along with the filter for the year 2008, its actual application took place in a different filter context, namely the inner filter context. The behavior is counter-intuitive to say the least. The more complex the expression used inside [[CALCULATE]], the harder it becomes to understand how the application works.
+
+The behavior of calculation items leads to the very important best practice: You need to use calculation items to modify an expression if and only if this expression is a single measure. The previous example was only useful to introduce the rule; let us now analyze the best practice with a more complex expression. The next expression computes the number of working days only for the months where there are sales:
+
+```dax
+
+
+SUMX ( 
+
+    VALUES ( 'Date'[Calendar Year month] ),
+
+    IF ( 
+
+        [Sales Amount] > 0, -- Measure reference
+
+        [# Working Days]    -- Measure reference
+
+    )
+
+)
+
+```
+
+This calculation is useful to compute Sales Amount per working day considering only the months with sales. The following example uses this calculation in a more complex expression:
+
+```dax
+
+
+DIVIDE ( 
+
+    [Sales Amount],  -- Measure reference
+
+    SUMX ( 
+
+        VALUES ( 'Date'[Calendar Year month] ),
+
+        IF ( 
+
+            [Sales Amount] > 0, -- Measure reference
+
+            [# Working Days]    -- Measure reference
+
+        )
+
+    )
+
+)
+
+```
+
+If this expression is executed within an outer [[CALCULATE]] that changes the calculation to a **YTD**, the result is the following new formula that produces an unexpected result:
+
+```dax
+
+
+Sales WD YTD 2008 :=
+
+CALCULATE (
+
+    DIVIDE ( 
+
+        [Sales Amount],  -- Measure reference
+
+        SUMX ( 
+
+            VALUES ( 'Date'[Calendar Year month] ),
+
+            IF ( 
+
+                [Sales Amount] > 0, -- Measure reference
+
+                [# Working Days]    -- Measure reference
+
+            )
+
+        )
+
+    ), 
+
+    'Time Intelligence'[Time calc] = "YTD",
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+Intuitively, one would expect the previous expression to compute the Sales Amount measure per working days considering all the months before the current one. In other words, one would expect this code to be executed:
+
+```dax
+
+
+Sales WD YTD 2008 Expected Code :=
+
+CALCULATE (
+
+    CALCULATE ( 
+
+        DIVIDE ( 
+
+            [Sales Amount],  -- Measure reference
+
+            SUMX ( 
+
+                VALUES ( 'Date'[Calendar Year month] ),
+
+                IF ( 
+
+                    [Sales Amount] > 0, -- Measure reference
+
+                    [# Working Days]    -- Measure reference
+
+                )
+
+            )
+
+        ) , 
+
+        DATESYTD ( 'Date'[Date] )
+
+    ),
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+Nevertheless, you might have noticed that we have highlighted the three measure references with a few comments. This was not by chance. The application of a calculation item happens on the measure references, not on the entire expression. Therefore, the code executed by replacing the measure references with the calculation items active in the filter context is very different:
+
+```dax
+
+
+Sales WD YTD 2008 Actual Code :=
+
+CALCULATE (
+
+    DIVIDE ( 
+
+        CALCULATE (
+
+            [Sales Amount],
+
+            DATESYTD ( 'Date'[Date] )
+
+        ),
+
+        SUMX ( 
+
+            VALUES ( 'Date'[Calendar Year month] ),
+
+            IF ( 
+
+                CALCULATE (
+
+                    [Sales Amount],
+
+                    DATESYTD ( 'Date'[Date] )
+
+                ) > 0,
+
+                CALCULATE (
+
+                    [# Working Days],
+
+                    DATESYTD ( 'Date'[Date] )
+
+                )
+
+            )
+
+        )
+
+    ),
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+This latter version of the code produces an abnormal value for the number of working days because it sums the year-to-date of the number of working days for all the months visible in the current context. The chances of producing an inaccurate result are extremely high. When an individual month is selected, the result (by pure luck) is the right one, whereas at the quarter and at the year levels it is hilariously wrong.
+
+![](https://cdn.sqlbi.com/wp-content/uploads/Calculation-groups-3-Advanced-Application-03.png)
+
+The *Sales WD YTD 2008 Expected Code* measure returns the correct number for every quarter, whereas the *Sales WD YTD 2008* and *Sales WD YTD 2008 Actual Code* measures return a smaller value. Indeed, the number of working days in the denominator of the ratio is computed as the sum of the year-to-date number of working days for each month in the period.
+
+You can easily avoid this complexity by obeying the best practice: Use [[CALCULATE]] with calculation items only to invoke an individual measure. When one authors the *Sales WD YTD 2008 Fixed* measure that includes the full expression and uses the *Sales WD* measure in a single [[CALCULATE]] function, the code is very different and easier to use:
+
+```dax
+
+
+--
+
+-- Measure Sales WD
+
+--
+
+Sales WD :=
+
+DIVIDE ( 
+
+    [Sales Amount],
+
+    SUMX ( 
+
+        VALUES ( 'Date'[Calendar Year month] ),
+
+        IF ( 
+
+            [Sales Amount] > 0,
+
+            [# Working Days]
+
+        )
+
+    )
+
+)
+
+
+
+--
+
+-- Measure Sales WD YTD 2008 Fixed
+
+-- New version of the Sales WD YTD 2008 measure that applies the YTD calculation item
+
+--
+
+Sales WD YTD 2008 Fixed :=
+
+CALCULATE (
+
+    [Sales WD],                             -- Measure reference
+
+    'Time Intelligence'[Time calc] = "YTD",
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+In this case, the code generated by the application of the calculation item is much more intuitive:
+
+```dax
+
+
+Sales WD YTD 2008 Fixed Actual Code :=
+
+CALCULATE (
+
+    CALCULATE (
+
+        [Sales WD],
+
+        DATESYTD ( 'Date'[Date] )
+
+    ),
+
+    'Date'[Calendar Year] = "CY 2008"
+
+)
+
+```
+
+In this latter example the filter provided by [[DATESYTD]] surrounds the entire expression, leading to the code that one intuitively expects from the application of the calculation item. The result of the *Sales WD YTD 2008 Fixed* and *Sales WD YTD 2008 Fixed Actual Code* measures is visible in the previous screenshot.
+
+For very simple calculations containing simple expressions, it is possible to deviate from this best practice. However, when doing so, you must always think twice before creating any measure, because as soon as the complexity of the expression is no longer trivial, the chances of producing wrong calculations become very high.
+
+## Conclusions
+
+The semantics of calculation items can be very complex if you do not follow the best practices. Luckily, you can avoid re-reading this article again and again by just following the best practices:
+
+- Always apply calculation items to individual measures.
+- Never apply calculation items to complex expressions.
+
+Nevertheless, calculation items still hide some level of complexity that has to be taken into account when multiple calculation groups are present in the same model. In this case, understanding the precedence of calculation item application is very important, as we discuss in the [next article](https://www.sqlbi.com/articles/understanding-calculation-group-precedence/).
+
+[[CALCULATE]]
+
+Context transition
+
+Evaluates an expression in a context modified by filters.
+
+`CALCULATE ( <Expression> [, <Filter> [, <Filter> [, … ] ] ] )`
+
+[[CALCULATETABLE]]
+
+Context transition
+
+Evaluates a table expression in a context modified by filters.
+
+`CALCULATETABLE ( <Table> [, <Filter> [, <Filter> [, … ] ] ] )`
+
+[[DATESYTD]]
+
+Context transition
+
+Returns a set of dates in the year up to the last date visible in the filter context.
+
+`DATESYTD ( <Dates> [, <YearEndDate>] )`
+
+## Articles in the Calculation Groups series
+
+- [Introducing Calculation Groups](https://www.sqlbi.com/articles/introducing-calculation-groups/)
+- [Understanding Calculation Groups](https://www.sqlbi.com/articles/understanding-calculation-groups/)
+- *Understanding the Application of Calculation Items*
+- [Understanding Calculation Group Precedence](https://www.sqlbi.com/articles/understanding-calculation-group-precedence/)
+- [Controlling Format Strings in Calculation Groups](https://www.sqlbi.com/articles/controlling-format-strings-in-calculation-groups/)
+- [Avoiding Pitfalls in Calculation Groups Precedence](https://www.sqlbi.com/articles/avoiding-pitfalls-in-calculation-groups-precedence/)
+- [Using calculation groups to selectively replace measures in DAX expressions](https://www.sqlbi.com/articles/using-calculation-groups-to-selectively-replace-measures-in-dax-expressions/)
+- [Using calculation groups to switch between dates](https://www.sqlbi.com/articles/using-calculation-groups-to-switch-between-dates/)
+- [Understanding the interactions between composite models and calculation groups](https://www.sqlbi.com/articles/understanding-the-interactions-between-composite-models-and-calculation-groups/)

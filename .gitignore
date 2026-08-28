@@ -1,0 +1,23 @@
+# Quartz 构建产物
+public/
+.quartz-cache/
+
+# 依赖
+node_modules/
+
+# Obsidian 本地配置（含敏感信息，绝不公开）
+.obsidian/
+
+# WorkBuddy 本地数据（含 memory + MCP 配置，绝不公开）
+.workbuddy/
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db
+__pycache__/
+
+# content 下的工具脚本与抓取产物（非笔记内容，不发布到站点）
+content/**/*.py
+content/**/*.html
+content/**/*.js
