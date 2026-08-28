@@ -16,8 +16,8 @@ const config: QuartzConfig = {
       provider: null,
     },
     locale: "zh-CN",
-    // 部署后改成你的真实域名（如 mumu-dax.pages.dev 或自定义域名）
-    baseUrl: "mumu-dax.pages.dev",
+    // Cloudflare Pages 默认域名；若绑定自定义域名，改此处并重新构建推送
+    baseUrl: "dax-knowledge-base.pages.dev",
     ignorePatterns: ["private", "templates", ".obsidian"],
     defaultDateType: "modified",
     theme: {
