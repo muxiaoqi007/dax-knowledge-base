@@ -21,3 +21,6 @@ __pycache__/
 content/**/*.py
 content/**/*.html
 content/**/*.js
+
+# 本地生成的交付物（部署指南等，非站点内容）
+outputs/
